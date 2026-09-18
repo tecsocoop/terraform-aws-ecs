@@ -19,10 +19,12 @@ resource "aws_ecs_cluster" "main" {
 ######## CAPACITY PROVIDER (EC2 + Fargate)
 
 resource "aws_ecs_capacity_provider" "ec2" {
-  name = "${var.name}-ec2-cp"
+  for_each = var.capacity_providers
+
+  name = "${var.name}-${each.value.suffix}-ec2-cp"
 
   auto_scaling_group_provider {
-    auto_scaling_group_arn         = aws_autoscaling_group.ecs_instances.arn
+    auto_scaling_group_arn         = aws_autoscaling_group.ecs_instances[each.key].arn
     managed_termination_protection = "ENABLED"
 
     managed_scaling {
@@ -44,17 +46,10 @@ resource "aws_ecs_capacity_provider" "ec2" {
 resource "aws_ecs_cluster_capacity_providers" "main" {
   cluster_name = aws_ecs_cluster.main.name
 
-  capacity_providers = [
-    "FARGATE",
-    "FARGATE_SPOT",
-    aws_ecs_capacity_provider.ec2.name,
-  ]
-
-  default_capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.ec2.name
-    base              = 1
-    weight            = 100
-  }
+  capacity_providers = concat(
+    ["FARGATE", "FARGATE_SPOT"],
+    [for capacity_provider in aws_ecs_capacity_provider.ec2 : capacity_provider.name],
+  )
 }
 
 ######## SECURITY GROUP
@@ -149,9 +144,10 @@ data "aws_ssm_parameter" "ecs_ami" {
 }
 
 resource "aws_launch_template" "ecs_instance" {
-  name_prefix   = "${var.name}-ecs-"
+  for_each      = var.capacity_providers
+  name_prefix   = "${var.name}-${each.value.suffix}-ecs-"
   image_id      = data.aws_ssm_parameter.ecs_ami.value
-  instance_type = var.instance_type
+  instance_type = each.value.instance_type
   key_name      = var.ssh_key_name
 
   iam_instance_profile {
@@ -173,7 +169,7 @@ resource "aws_launch_template" "ecs_instance" {
       var.tags,
       {
         "Cluster" = var.name
-        "Name"    = "${var.name}-ecs-instance"
+        "Name"    = "${var.name}-${each.value.suffix}-ecs-instance"
       },
     )
   }
@@ -184,24 +180,25 @@ resource "aws_launch_template" "ecs_instance" {
 }
 
 resource "aws_autoscaling_group" "ecs_instances" {
-  name_prefix         = "${var.name}-ecs-"
+  for_each            = var.capacity_providers
+  name_prefix         = "${var.name}-${each.value.suffix}-ecs-"
   vpc_zone_identifier = var.subnets_ids
-  min_size            = var.asg_min_size
-  max_size            = var.asg_max_size
-  desired_capacity    = var.asg_desired_capacity
+  min_size            = each.value.min_size
+  max_size            = each.value.max_size
+  desired_capacity    = each.value.desired_capacity
 
   # Required so the capacity provider can drain tasks before terminating an
   # instance.
   protect_from_scale_in = true
 
   launch_template {
-    id      = aws_launch_template.ecs_instance.id
+    id      = aws_launch_template.ecs_instance[each.key].id
     version = "$Latest"
   }
 
   tag {
     key                 = "Name"
-    value               = "${var.name}-ecs-instance"
+    value               = "${var.name}-${each.value.suffix}-ecs-instance"
     propagate_at_launch = true
   }
 

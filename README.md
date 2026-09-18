@@ -1,10 +1,11 @@
 # terraform-aws-ecs
 
-Terraform module that deploys an Amazon ECS cluster with an EC2 capacity
-provider (plus `FARGATE` / `FARGATE_SPOT`), backed by an Auto Scaling Group of
-ECS-optimized container instances. It creates the cluster, the capacity
-providers, the container instances security group, the instance IAM role /
-instance profile, the launch template and the ASG.
+Terraform module that deploys an Amazon ECS cluster with one or more EC2
+capacity providers (plus `FARGATE` / `FARGATE_SPOT`). Each EC2 capacity
+provider has its own Auto Scaling Group of ECS-optimized container instances
+and launch template. It creates the cluster, capacity providers, container
+instances security group, instance IAM role / instance profile, launch
+templates and ASGs.
 
 > [!important]
 > This module does **not** create an Application Load Balancer. It is designed
@@ -45,11 +46,23 @@ module "ecs" {
   # Security group of the pre-existing ALB
   alb_security_group_id = aws_security_group.alb.id
 
-  instance_type = "t3a.medium"
+  capacity_providers = {
+    general = {
+      suffix           = "general"
+      instance_type     = "t3a.medium"
+      desired_capacity  = 2
+      min_size          = 1
+      max_size          = 4
+    }
 
-  asg_min_size         = 1
-  asg_max_size         = 1
-  asg_desired_capacity = 1
+    compute = {
+      suffix           = "compute"
+      instance_type     = "c7i.large"
+      desired_capacity  = 0
+      min_size          = 0
+      max_size          = 6
+    }
+  }
 
   tags = {
     "Environment" = "uat"
@@ -67,6 +80,12 @@ module "ecs" {
 > The `aws_ecs_capacity_provider` `managed_termination_protection = "ENABLED"`
 > together with `protect_from_scale_in = true` on the ASG lets ECS drain tasks
 > from an instance before the ASG terminates it during scale-in.
+
+> [!important]
+> The module does not configure a default capacity provider strategy on the
+> cluster. Every ECS service must explicitly declare a
+> `capacity_provider_strategy` that selects an EC2 capacity provider, `FARGATE`
+> or `FARGATE_SPOT`.
 
 ### Node access via SSM Session Manager
 
@@ -89,11 +108,8 @@ aws ssm start-session --target <instance_id>
 | `vpc_id`                  | VPC ID where the ASG will be deployed.                                              | string                     | -       |
 | `subnets_ids`             | Private subnet IDs for the ASG.                                                     | `list(string)`             | -       |
 | `alb_security_group_id`   | Security group ID of the pre-existing ALB allowed to reach ECS container instances on their dynamic host ports. | string | -       |
-| `instance_type`           | Instance type for the ECS container instances ASG.                                 | string - e.g. `t3a.medium` | -       |
 | `ssh_key_name`            | AWS key pair name for SSH access (optional; instances are reachable via SSM).      | string                     | `null`  |
-| `asg_min_size`            | Minimum number of ECS container instances in the ASG.                              | number                     | `1`     |
-| `asg_max_size`            | Maximum number of ECS container instances in the ASG.                              | number                     | `1`     |
-| `asg_desired_capacity`    | Desired number of ECS container instances in the ASG.                              | number                     | `1`     |
+| `capacity_providers`      | EC2 capacity provider map. Each item defines `suffix`, `instance_type`, `desired_capacity`, `min_size` and `max_size`. The map key is the stable Terraform identity. | `map(object(...))` | - |
 | `tags`                    | Additional tags applied to all resources.                                          | `map(string)`              | `{}`    |
 
 </details>
@@ -105,11 +121,11 @@ aws ssm start-session --target <instance_id>
 |-------------------------------------|---------------------------------------------------------------------------|
 | `cluster_name`                      | Name of the ECS cluster.                                                 |
 | `cluster_arn`                       | ARN of the ECS cluster.                                                  |
-| `capacity_provider_name`            | Name of the ECS EC2 capacity provider (used in `capacity_provider_strategy` blocks). |
+| `capacity_providers`                | Map of EC2 capacity providers keyed by the `capacity_providers` input key, including name and ARN. |
 | `ecs_instances_security_group_id`   | Security group attached to ECS container instances.                     |
 | `ecs_instance_role_arn`             | ARN of the IAM role assumed by ECS container instances (EC2).           |
 | `ecs_instance_role_name`            | Name of the IAM role assumed by ECS container instances (EC2).          |
-| `autoscaling_group_arn`             | ARN of the ECS container instances Auto Scaling Group.                  |
+| `autoscaling_groups`                | Map of Auto Scaling Groups keyed by the `capacity_providers` input key, including name and ARN. |
 
 </details>
 
@@ -228,7 +244,7 @@ resource "aws_ecs_service" "app" {
   force_new_deployment = true
 
   capacity_provider_strategy {
-    capacity_provider = module.ecs.capacity_provider_name
+    capacity_provider = module.ecs.capacity_providers["general"].name
     base              = 1
     weight            = 100
   }
