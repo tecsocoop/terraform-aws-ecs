@@ -8,6 +8,11 @@ output "cluster_arn" {
   value       = aws_ecs_cluster.main.arn
 }
 
+output "ecs_ami_id" {
+  description = "AMI ID selected for the ECS container instances."
+  value       = local.ecs_ami_id
+}
+
 output "capacity_providers" {
   description = "EC2 capacity providers keyed by capacity_providers input key."
   value = {

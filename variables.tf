@@ -26,6 +26,20 @@ variable "ssh_key_name" {
   default     = null
 }
 
+variable "ecs_ami_id" {
+  description = "ECS-optimized AMI ID. When null, the latest recommended Amazon Linux 2023 ECS AMI is resolved from SSM Parameter Store."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.ecs_ami_id == null ||
+      can(regex("^ami-[0-9a-f]{8}([0-9a-f]{9})?$", var.ecs_ami_id))
+    )
+    error_message = "ecs_ami_id must be null or a valid AMI ID."
+  }
+}
+
 variable "capacity_providers" {
   description = <<-EOT
     Map of EC2 capacity provider configurations. Each entry creates an ECS

@@ -138,15 +138,21 @@ resource "aws_iam_instance_profile" "ecs_instance" {
 ######## LAUNCH TEMPLATE / AUTO SCALING GROUP
 
 data "aws_ssm_parameter" "ecs_ami" {
+  count = var.ecs_ami_id == null ? 1 : 0
+
   # Latest ECS-optimized Amazon Linux 2023 AMI, maintained by AWS.
   # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
   name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id"
 }
 
+locals {
+  ecs_ami_id = var.ecs_ami_id != null ? var.ecs_ami_id : data.aws_ssm_parameter.ecs_ami[0].value
+}
+
 resource "aws_launch_template" "ecs_instance" {
   for_each      = var.capacity_providers
   name_prefix   = "${var.name}-${each.value.suffix}-ecs-"
-  image_id      = data.aws_ssm_parameter.ecs_ami.value
+  image_id      = local.ecs_ami_id
   instance_type = each.value.instance_type
   key_name      = var.ssh_key_name
 

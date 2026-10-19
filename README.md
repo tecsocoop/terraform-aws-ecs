@@ -46,6 +46,10 @@ module "ecs" {
   # Security group of the pre-existing ALB
   alb_security_group_id = aws_security_group.alb.id
 
+  # Optional: pin the AMI to prevent automatic changes when AWS publishes a
+  # new recommended ECS-optimized AMI. When omitted, the latest is selected.
+  # ecs_ami_id = "ami-0123456789abcdef0"
+
   capacity_providers = {
     general = {
       suffix           = "general"
@@ -76,6 +80,13 @@ module "ecs" {
 > only allows that range from `alb_security_group_id`; the ALB target groups
 > must use `target_type = "instance"` and the dynamic port assigned by ECS.
 
+> [!important]
+> When `ecs_ami_id` is omitted, the module resolves the latest recommended
+> Amazon Linux 2023 ECS-optimized AMI from SSM Parameter Store during each
+> Terraform refresh. Set `ecs_ami_id` explicitly in stable environments to
+> prevent future plans from selecting a newly published AMI. The selected
+> value is available through the `ecs_ami_id` output.
+
 > [!note]
 > The `aws_ecs_capacity_provider` `managed_termination_protection = "ENABLED"`
 > together with `protect_from_scale_in = true` on the ASG lets ECS drain tasks
@@ -102,15 +113,16 @@ aws ssm start-session --target <instance_id>
 <details>
 <summary>Variables</summary>
 
-| Variable                 | Description                                                                        | Values                     | Default |
-|---------------------------|-------------------------------------------------------------------------------------|----------------------------|---------|
-| `name`                    | Cluster name.                                                                        | string - e.g. `uat-example` | -       |
-| `vpc_id`                  | VPC ID where the ASG will be deployed.                                              | string                     | -       |
-| `subnets_ids`             | Private subnet IDs for the ASG.                                                     | `list(string)`             | -       |
+| Variable                 | Descripción                                                                        | Valores                     | Default |
+|---------------------------|-------------------------------------------------------------------------------------|-----------------------------|---------|
+| `name`                    | Cluster name.                                                                       | string - e.g. `uat-example` | -       |
+| `vpc_id`                  | VPC ID where the ASG will be deployed.                                              | string                      | -       |
+| `subnets_ids`             | Private subnet IDs for the ASG.                                                     | `list(string)`              | -       |
 | `alb_security_group_id`   | Security group ID of the pre-existing ALB allowed to reach ECS container instances on their dynamic host ports. | string | -       |
-| `ssh_key_name`            | AWS key pair name for SSH access (optional; instances are reachable via SSM).      | string                     | `null`  |
+| `ssh_key_name`            | AWS key pair name for SSH access (optional; instances are reachable via SSM).       | string                      | `null`  |
+| `ecs_ami_id`              | ECS-optimized AMI ID. When omitted, the latest recommended Amazon Linux 2023 ECS AMI is resolved from SSM Parameter Store. | string | `null` |
 | `capacity_providers`      | EC2 capacity provider map. Each item defines `suffix`, `instance_type`, `desired_capacity`, `min_size` and `max_size`. The map key is the stable Terraform identity. | `map(object(...))` | - |
-| `tags`                    | Additional tags applied to all resources.                                          | `map(string)`              | `{}`    |
+| `tags`                    | Additional tags applied to all resources.                                          | `map(string)`               | `{}`    |
 
 </details>
 
@@ -121,6 +133,7 @@ aws ssm start-session --target <instance_id>
 |-------------------------------------|---------------------------------------------------------------------------|
 | `cluster_name`                      | Name of the ECS cluster.                                                 |
 | `cluster_arn`                       | ARN of the ECS cluster.                                                  |
+| `ecs_ami_id`                        | AMI ID selected for the ECS container instances.                          |
 | `capacity_providers`                | Map of EC2 capacity providers keyed by the `capacity_providers` input key, including name and ARN. |
 | `ecs_instances_security_group_id`   | Security group attached to ECS container instances.                     |
 | `ecs_instance_role_arn`             | ARN of the IAM role assumed by ECS container instances (EC2).           |
